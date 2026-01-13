@@ -6,6 +6,8 @@
     <title>Dome Album</title>
     <meta name="description" content="A 3D dome gallery for viewing images in an immersive way">
     <meta name="theme-color" content="#060010">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="https://images.unsplash.com/photo-1755331039789-7e5680e26e8f?q=80&w=100&auto=format&fit=crop" type="image/jpeg">
     <style>
@@ -531,6 +533,21 @@
             background: rgba(255, 255, 255, 0.15);
         }
 
+        /* Fullscreen styles */
+        body.fullscreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 99999;
+        }
+
+        body.fullscreen #appHeader,
+        body.fullscreen #rotateButton {
+            display: none;
+        }
+
         /* Responsive adjustments */
         @media (max-width: 768px) {
             .sphere-root {
@@ -644,6 +661,16 @@
                 font-size: 14px;
             }
         }
+
+        /* Hide browser UI in fullscreen */
+        .hide-ui {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 999999;
+        }
     </style>
 </head>
 <body>
@@ -718,41 +745,7 @@
 
     <!-- Service Worker Registration -->
     <script>
-        // Service Worker for PWA
-        if ('serviceWorker' in navigator) {
-            window.addEventListener('load', function() {
-                navigator.serviceWorker.register('service-worker.js').then(function(registration) {
-                    console.log('ServiceWorker registration successful with scope: ', registration.scope);
-                }, function(err) {
-                    console.log('ServiceWorker registration failed: ', err);
-                });
-            });
-        }
-
-        // Create service worker file dynamically
-        const swContent = `
-            self.addEventListener('install', event => {
-                event.waitUntil(
-                    caches.open('dome-album-v1').then(cache => {
-                        return cache.addAll([
-                            './',
-                            './index.html',
-                            'https://images.unsplash.com/photo-1755331039789-7e5680e26e8f?q=80&w=100&auto=format&fit=crop'
-                        ]);
-                    })
-                );
-            });
-
-            self.addEventListener('fetch', event => {
-                event.respondWith(
-                    caches.match(event.request).then(response => {
-                        return response || fetch(event.request);
-                    })
-                );
-            });
-        `;
-
-        // Create manifest file dynamically
+        // Create manifest file
         const manifest = {
             "name": "Dome Album",
             "short_name": "DomeAlbum",
@@ -761,6 +754,7 @@
             "display": "standalone",
             "background_color": "#060010",
             "theme_color": "#060010",
+            "orientation": "landscape",
             "icons": [
                 {
                     "src": "https://images.unsplash.com/photo-1755331039789-7e5680e26e8f?q=80&w=192&auto=format&fit=crop",
@@ -772,13 +766,65 @@
                     "sizes": "512x512",
                     "type": "image/jpeg"
                 }
-            ],
-            "orientation": "landscape"
+            ]
         };
 
-        // Store manifest and service worker in localStorage for demo purposes
+        // Store manifest in localStorage
         localStorage.setItem('dome-album-manifest', JSON.stringify(manifest));
-        localStorage.setItem('dome-album-sw', swContent);
+
+        // Service Worker for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                // Create service worker script dynamically
+                const swContent = `
+                    const CACHE_NAME = 'dome-album-v1';
+                    const urlsToCache = [
+                        './',
+                        './index.html'
+                    ];
+
+                    self.addEventListener('install', event => {
+                        event.waitUntil(
+                            caches.open(CACHE_NAME)
+                                .then(cache => cache.addAll(urlsToCache))
+                        );
+                    });
+
+                    self.addEventListener('fetch', event => {
+                        event.respondWith(
+                            caches.match(event.request)
+                                .then(response => response || fetch(event.request))
+                        );
+                    });
+
+                    self.addEventListener('activate', event => {
+                        event.waitUntil(
+                            caches.keys().then(cacheNames => {
+                                return Promise.all(
+                                    cacheNames.map(cacheName => {
+                                        if (cacheName !== CACHE_NAME) {
+                                            return caches.delete(cacheName);
+                                        }
+                                    })
+                                );
+                            })
+                        );
+                    });
+                `;
+
+                // Create and register service worker
+                const blob = new Blob([swContent], { type: 'application/javascript' });
+                const swUrl = URL.createObjectURL(blob);
+                
+                navigator.serviceWorker.register(swUrl)
+                    .then(registration => {
+                        console.log('ServiceWorker registered:', registration);
+                    })
+                    .catch(error => {
+                        console.log('ServiceWorker registration failed:', error);
+                    });
+            });
+        }
     </script>
 
     <!-- Main Application Script -->
@@ -859,6 +905,9 @@
                 this.scrollLocked = false;
                 this.autoRotated = false;
                 this.currentOrientation = this.getOrientation();
+                this.autoRotateInterval = null;
+                this.lastUserInteraction = Date.now();
+                this.isFullscreen = false;
                 
                 this.initElements();
                 this.createItems();
@@ -866,6 +915,7 @@
                 this.initResizeObserver();
                 this.updateRadius();
                 this.applyTransform();
+                this.startAutoRotation();
                 
                 // Check initial orientation
                 this.checkOrientation();
@@ -888,49 +938,27 @@
                 const orientation = this.getOrientation();
                 this.currentOrientation = orientation;
                 
+                // Always show dome, never auto-rotate based on device orientation
                 if (orientation === 'portrait' && window.innerWidth <= 768) {
-                    // Auto-rotate for portrait mode on mobile
-                    this.autoRotateForPortrait();
+                    // Show orientation warning but don't auto-rotate
                     document.getElementById('orientationWarning').classList.add('show');
                 } else {
-                    // Show normal landscape view
-                    this.resetAutoRotation();
                     document.getElementById('orientationWarning').classList.remove('show');
                 }
             }
 
-            autoRotateForPortrait() {
-                if (!this.autoRotated) {
-                    this.autoRotated = true;
-                    this.stage.classList.add('auto-rotated');
-                    
-                    // Adjust rotation for portrait mode
-                    const temp = this.rotation.x;
-                    this.rotation.x = this.rotation.y;
-                    this.rotation.y = temp;
-                    this.applyTransform();
-                    
-                    // Update config for portrait mode
-                    this.config.dragSensitivity = 15; // More sensitive for portrait
-                    this.config.maxVerticalRotationDeg = 8; // Allow more vertical rotation
-                }
-            }
-
-            resetAutoRotation() {
-                if (this.autoRotated) {
-                    this.autoRotated = false;
-                    this.stage.classList.remove('auto-rotated');
-                    
-                    // Reset rotation
-                    const temp = this.rotation.x;
-                    this.rotation.x = this.rotation.y;
-                    this.rotation.y = temp;
-                    this.applyTransform();
-                    
-                    // Reset config
-                    this.config.dragSensitivity = 20;
-                    this.config.maxVerticalRotationDeg = 5;
-                }
+            startAutoRotation() {
+                // Always rotate slowly regardless of device motion settings
+                if (this.autoRotateInterval) clearInterval(this.autoRotateInterval);
+                
+                this.autoRotateInterval = setInterval(() => {
+                    // Only auto-rotate if no user interaction for 10 seconds
+                    if (Date.now() - this.lastUserInteraction > 10000) {
+                        // Very slow auto-rotation (0.05 degrees per frame)
+                        this.rotation.y = wrapAngleSigned(this.rotation.y + 0.05);
+                        this.applyTransform();
+                    }
+                }, 16); // ~60fps
             }
 
             initElements() {
@@ -1075,21 +1103,27 @@
                     this.rotateGallery();
                 });
                 
+                // User interaction tracking
+                this.main.addEventListener('mousedown', () => this.recordUserInteraction());
+                this.main.addEventListener('touchstart', () => this.recordUserInteraction());
+                document.addEventListener('keydown', () => this.recordUserInteraction());
+                
                 // Orientation change
                 window.addEventListener('resize', () => this.handleResize());
                 window.addEventListener('orientationchange', () => {
                     setTimeout(() => this.handleResize(), 100);
                 });
                 
-                // Device motion for auto-rotation
-                if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-                    this.setupDeviceMotion();
-                } else if (window.DeviceMotionEvent) {
-                    window.addEventListener('devicemotion', (e) => this.handleDeviceMotion(e));
-                }
-                
                 // Prevent context menu
                 this.main.addEventListener('contextmenu', (e) => e.preventDefault());
+                
+                // Fullscreen change
+                document.addEventListener('fullscreenchange', () => this.handleFullscreenChange());
+                document.addEventListener('webkitfullscreenchange', () => this.handleFullscreenChange());
+            }
+
+            recordUserInteraction() {
+                this.lastUserInteraction = Date.now();
             }
 
             handleResize() {
@@ -1104,50 +1138,44 @@
                 this.applyTransform();
             }
 
-            setupDeviceMotion() {
-                // Request permission for iOS 13+
-                document.addEventListener('click', () => {
-                    if (typeof DeviceMotionEvent.requestPermission === 'function') {
-                        DeviceMotionEvent.requestPermission()
-                            .then(permissionState => {
-                                if (permissionState === 'granted') {
-                                    window.addEventListener('devicemotion', (e) => this.handleDeviceMotion(e));
-                                }
-                            })
-                            .catch(console.error);
-                    }
-                });
+            handleFullscreenChange() {
+                this.isFullscreen = !!document.fullscreenElement || !!document.webkitFullscreenElement;
+                
+                if (this.isFullscreen) {
+                    document.body.classList.add('fullscreen');
+                    // Hide browser UI by adding an overlay
+                    const hideUIOverlay = document.createElement('div');
+                    hideUIOverlay.className = 'hide-ui';
+                    hideUIOverlay.style.cssText = `
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        background: transparent;
+                        z-index: 999999;
+                        pointer-events: none;
+                    `;
+                    document.body.appendChild(hideUIOverlay);
+                } else {
+                    document.body.classList.remove('fullscreen');
+                    const overlay = document.querySelector('.hide-ui');
+                    if (overlay) overlay.remove();
+                }
             }
 
-            handleDeviceMotion(event) {
-                if (!event.rotationRate || this.focusedElement || this.dragging) return;
-                
-                const { alpha, beta, gamma } = event.rotationRate;
-                if (!alpha && !beta && !gamma) return;
-                
-                // Use gyroscope data for subtle auto-rotation
-                const sensitivity = 0.05;
-                const maxRotation = 2;
-                
-                if (beta) {
-                    const deltaY = clamp(beta * sensitivity, -maxRotation, maxRotation);
-                    this.rotation.y = wrapAngleSigned(this.rotation.y + deltaY);
+            enterFullscreen() {
+                const element = document.documentElement;
+                if (element.requestFullscreen) {
+                    element.requestFullscreen();
+                } else if (element.webkitRequestFullscreen) {
+                    element.webkitRequestFullscreen();
                 }
-                
-                if (gamma) {
-                    const deltaX = clamp(gamma * sensitivity, -maxRotation, maxRotation);
-                    this.rotation.x = clamp(
-                        this.rotation.x + deltaX,
-                        -this.config.maxVerticalRotationDeg,
-                        this.config.maxVerticalRotationDeg
-                    );
-                }
-                
-                this.applyTransform();
             }
 
             onDragStart(e) {
                 if (this.focusedElement) return;
+                this.recordUserInteraction();
                 this.stopInertia();
                 this.dragging = true;
                 this.moved = false;
@@ -1166,7 +1194,6 @@
                     if (dist2 > 16) this.moved = true;
                 }
                 
-                // Adjust sensitivity based on orientation
                 const sensitivity = this.autoRotated ? this.config.dragSensitivity * 0.8 : this.config.dragSensitivity;
                 
                 const nextX = clamp(
@@ -1208,6 +1235,7 @@
                 if (this.moved) return;
                 if (performance.now() - this.lastDragEndAt < 80) return;
                 if (this.opening) return;
+                this.recordUserInteraction();
                 this.openItemFromElement(e.currentTarget);
             }
 
@@ -1217,22 +1245,13 @@
                 if (this.moved) return;
                 if (performance.now() - this.lastDragEndAt < 80) return;
                 if (this.opening) return;
+                this.recordUserInteraction();
                 this.openItemFromElement(e.currentTarget);
             }
 
             applyTransform() {
                 if (this.sphere) {
-                    // Adjust rotation based on auto-rotation
-                    let rotationX = this.rotation.x;
-                    let rotationY = this.rotation.y;
-                    
-                    if (this.autoRotated) {
-                        // Swap axes for portrait mode
-                        rotationX = this.rotation.y;
-                        rotationY = this.rotation.x;
-                    }
-                    
-                    this.sphere.style.transform = `translateZ(calc(var(--radius) * -1)) rotateX(${rotationX}deg) rotateY(${rotationY}deg)`;
+                    this.sphere.style.transform = `translateZ(calc(var(--radius) * -1)) rotateX(${this.rotation.x}deg) rotateY(${this.rotation.y}deg)`;
                 }
             }
 
@@ -1534,6 +1553,7 @@
             }
 
             rotateGallery() {
+                this.recordUserInteraction();
                 this.rotationAngle = (this.rotationAngle + 90) % 360;
                 this.stage.classList.remove('rotated-0', 'rotated-90', 'rotated-180', 'rotated-270');
                 
@@ -1564,6 +1584,9 @@
                         if (choiceResult.outcome === 'accepted') {
                             console.log('User accepted the install prompt');
                             document.getElementById('installBanner').classList.remove('show');
+                            
+                            // Enter fullscreen after installation
+                            setTimeout(() => this.enterFullscreen(), 1000);
                         } else {
                             console.log('User dismissed the install prompt');
                         }
@@ -1571,7 +1594,7 @@
                     });
                 } else {
                     // Fallback for browsers that don't support beforeinstallprompt
-                    alert('To install this app, look for the "Add to Home Screen" option in your browser\'s menu.');
+                    alert('To install this app: \n\n1. Look for the "Add to Home Screen" option in your browser\'s menu\n2. Or click the install icon in your browser\'s address bar\n3. Or on iOS, tap the Share button and select "Add to Home Screen"');
                 }
             }
         }
@@ -1599,7 +1622,20 @@
             // Detect if app is running in standalone mode
             if (window.matchMedia('(display-mode: standalone)').matches) {
                 console.log('Running in standalone mode');
+                // Auto-enter fullscreen in standalone mode
+                setTimeout(() => {
+                    window.gallery.enterFullscreen();
+                }, 1000);
             }
+            
+            // Auto-enter fullscreen when user clicks anywhere (for better PWA experience)
+            document.addEventListener('click', () => {
+                if (!window.gallery.isFullscreen && !window.matchMedia('(display-mode: standalone)').matches) {
+                    setTimeout(() => {
+                        window.gallery.enterFullscreen();
+                    }, 500);
+                }
+            }, { once: true });
         });
 
         // Handle service worker updates
