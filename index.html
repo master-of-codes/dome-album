@@ -1,0 +1,1613 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dome Album</title>
+    <meta name="description" content="A 3D dome gallery for viewing images in an immersive way">
+    <meta name="theme-color" content="#060010">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="https://images.unsplash.com/photo-1755331039789-7e5680e26e8f?q=80&w=100&auto=format&fit=crop" type="image/jpeg">
+    <style>
+        /* Reset and base styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            touch-action: none;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+
+        body {
+            background: #000;
+            color: #fff;
+            position: relative;
+        }
+
+        /* PWA Install Banner */
+        #installBanner {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: rgba(20, 20, 40, 0.95);
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 1000;
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            transform: translateY(-100%);
+            transition: transform 0.3s ease;
+        }
+
+        #installBanner.show {
+            transform: translateY(0);
+        }
+
+        #installBanner p {
+            font-size: 14px;
+            margin-right: 12px;
+            flex: 1;
+        }
+
+        #installBanner button {
+            background: #4a6cf7;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        #installBanner button:hover {
+            background: #3a5ce5;
+        }
+
+        #installBanner #closeBanner {
+            background: transparent;
+            color: #aaa;
+            margin-left: 8px;
+        }
+
+        /* App Header */
+        #appHeader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            padding: 16px;
+            z-index: 900;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            pointer-events: none;
+        }
+
+        #appLogo {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            overflow: hidden;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            pointer-events: auto;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+
+        #appLogo:hover {
+            transform: scale(1.05);
+        }
+
+        #appLogo img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        #appTitle {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 20px;
+            font-weight: 600;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 4px 16px;
+            border-radius: 20px;
+            backdrop-filter: blur(10px);
+            pointer-events: none;
+        }
+
+        /* Rotate Button */
+        #rotateButton {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 900;
+            pointer-events: auto;
+            transition: all 0.2s;
+        }
+
+        #rotateButton:hover {
+            background: rgba(255, 255, 255, 0.15);
+            transform: scale(1.1);
+        }
+
+        #rotateButton svg {
+            width: 24px;
+            height: 24px;
+            fill: white;
+        }
+
+        /* Orientation Warning */
+        #orientationWarning {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #000;
+            z-index: 3000;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            text-align: center;
+            display: none;
+        }
+
+        #orientationWarning.show {
+            display: flex;
+        }
+
+        #orientationWarning svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+            fill: #4a6cf7;
+        }
+
+        #orientationWarning h3 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #fff;
+        }
+
+        #orientationWarning p {
+            color: #aaa;
+            font-size: 16px;
+            line-height: 1.5;
+            max-width: 300px;
+        }
+
+        /* Dome Gallery Styles */
+        .sphere-root {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            --radius: 520px;
+            --viewer-pad: 72px;
+            --circ: calc(var(--radius) * 3.14);
+            --segments-x: 35;
+            --segments-y: 35;
+            --rot-y: calc((360deg / var(--segments-x)) / 2);
+            --rot-x: calc((360deg / var(--segments-y)) / 2);
+            --item-width: calc(var(--circ) / var(--segments-x));
+            --item-height: calc(var(--circ) / var(--segments-y));
+            --overlay-blur-color: #060010;
+            --tile-radius: 30px;
+            --enlarge-radius: 30px;
+            --image-filter: grayscale(1);
+        }
+
+        .sphere-root * {
+            box-sizing: border-box;
+        }
+
+        main.sphere-main {
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            overflow: hidden;
+            touch-action: none;
+            user-select: none;
+            -webkit-user-select: none;
+            background: transparent;
+        }
+
+        .stage {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            place-items: center;
+            perspective: calc(var(--radius) * 2);
+            perspective-origin: 50% 50%;
+            contain: layout paint size;
+            transition: transform 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .stage.rotated-90 {
+            transform: rotate(-90deg);
+        }
+
+        .stage.rotated-180 {
+            transform: rotate(-180deg);
+        }
+
+        .stage.rotated-270 {
+            transform: rotate(-270deg);
+        }
+
+        .sphere {
+            transform: translateZ(calc(var(--radius) * -1));
+            will-change: transform;
+            transform-style: preserve-3d;
+        }
+
+        .sphere,
+        .item,
+        .item__image {
+            transform-style: preserve-3d;
+        }
+
+        .overlay,
+        .overlay--blur {
+            position: absolute;
+            inset: 0;
+            margin: auto;
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        .overlay {
+            background-image: radial-gradient(rgba(235, 235, 235, 0) 65%, var(--overlay-blur-color, #060010) 100%);
+        }
+
+        .overlay--blur {
+            -webkit-mask-image: radial-gradient(rgba(235, 235, 235, 0) 70%, var(--overlay-blur-color, #060010) 90%);
+            mask-image: radial-gradient(rgba(235, 235, 235, 0) 70%, var(--overlay-blur-color, #060010) 90%);
+            backdrop-filter: blur(3px);
+        }
+
+        .item {
+            width: calc(var(--item-width) * var(--item-size-x, 2));
+            height: calc(var(--item-height) * var(--item-size-y, 2));
+            position: absolute;
+            top: -999px;
+            bottom: -999px;
+            left: -999px;
+            right: -999px;
+            margin: auto;
+            transform-origin: 50% 50%;
+            backface-visibility: hidden;
+            transition: transform 300ms;
+            transform: rotateY(calc(var(--rot-y) * (var(--offset-x) + ((var(--item-size-x, 2) - 1) / 2)) + var(--rot-y-delta, 0deg)))
+                rotateX(calc(var(--rot-x) * (var(--offset-y) - ((var(--item-size-y, 2) - 1) / 2)) + var(--rot-x-delta, 0deg)))
+                translateZ(var(--radius));
+        }
+
+        .item__image {
+            position: absolute;
+            display: block;
+            inset: 10px;
+            border-radius: var(--tile-radius, 12px);
+            background: transparent;
+            overflow: hidden;
+            backface-visibility: hidden;
+            transition: transform 300ms;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+            pointer-events: auto;
+            -webkit-transform: translateZ(0);
+            transform: translateZ(0);
+        }
+
+        .item__image:focus {
+            outline: none;
+        }
+
+        .item__image img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            pointer-events: none;
+            backface-visibility: hidden;
+            filter: var(--image-filter, none);
+            transition: filter 0.3s;
+        }
+
+        .item__image:hover img {
+            filter: var(--image-filter, none) brightness(1.1);
+        }
+
+        .viewer {
+            position: absolute;
+            inset: 0;
+            z-index: 20;
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: var(--viewer-pad);
+        }
+
+        .viewer .frame {
+            height: 100%;
+            aspect-ratio: 1;
+            border-radius: var(--enlarge-radius, 32px);
+            display: flex;
+        }
+
+        @media (max-aspect-ratio: 1/1) {
+            .viewer .frame {
+                height: auto;
+                width: 100%;
+            }
+        }
+
+        .viewer .scrim {
+            position: absolute;
+            inset: 0;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.4);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 500ms ease;
+            backdrop-filter: blur(3px);
+        }
+
+        .sphere-root[data-enlarging='true'] .viewer .scrim {
+            opacity: 1;
+            pointer-events: all;
+        }
+
+        .viewer .enlarge {
+            position: absolute;
+            z-index: 30;
+            border-radius: var(--enlarge-radius, 32px);
+            overflow: hidden;
+            transition:
+                transform 500ms ease,
+                opacity 500ms ease,
+                left 500ms ease,
+                top 500ms ease,
+                width 500ms ease,
+                height 500ms ease;
+            transform-origin: top left;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        }
+
+        .viewer .enlarge img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            filter: var(--image-filter, none);
+        }
+
+        .sphere-root .enlarge-closing {
+            position: absolute;
+            z-index: 9999;
+            border-radius: var(--enlarge-radius, 32px);
+            overflow: hidden;
+            transition: all 300ms ease-out;
+            pointer-events: none;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+        }
+
+        .sphere-root .enlarge-closing img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            filter: var(--image-filter, none);
+        }
+
+        .edge-fade {
+            position: absolute;
+            left: 0;
+            right: 0;
+            height: 120px;
+            z-index: 5;
+            pointer-events: none;
+            background: linear-gradient(to bottom, transparent, var(--overlay-blur-color, #060010));
+        }
+
+        .edge-fade--top {
+            top: 0;
+            transform: rotate(180deg);
+        }
+
+        .edge-fade--bottom {
+            bottom: 0;
+        }
+
+        /* Dialog Styles */
+        .dialog-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, visibility 0.3s;
+            backdrop-filter: blur(5px);
+        }
+
+        .dialog-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .dialog {
+            background: rgba(30, 30, 50, 0.95);
+            border-radius: 20px;
+            padding: 32px;
+            max-width: 400px;
+            width: 90%;
+            text-align: center;
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+        }
+
+        .dialog h3 {
+            font-size: 24px;
+            margin-bottom: 16px;
+            color: #fff;
+        }
+
+        .dialog p {
+            color: #aaa;
+            margin-bottom: 24px;
+            line-height: 1.5;
+        }
+
+        .dialog-buttons {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .dialog-button {
+            padding: 12px 24px;
+            border-radius: 10px;
+            border: none;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 16px;
+        }
+
+        .dialog-button.primary {
+            background: #4a6cf7;
+            color: white;
+            flex: 1;
+        }
+
+        .dialog-button.primary:hover {
+            background: #3a5ce5;
+            transform: translateY(-2px);
+        }
+
+        .dialog-button.secondary {
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            flex: 1;
+        }
+
+        .dialog-button.secondary:hover {
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 768px) {
+            .sphere-root {
+                --viewer-pad: 32px;
+            }
+            
+            #appHeader {
+                padding: 12px;
+            }
+            
+            #appLogo {
+                width: 40px;
+                height: 40px;
+            }
+            
+            #appTitle {
+                font-size: 16px;
+            }
+            
+            #rotateButton {
+                width: 48px;
+                height: 48px;
+                bottom: 16px;
+                right: 16px;
+            }
+            
+            .dialog {
+                padding: 24px;
+                margin: 16px;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .sphere-root {
+                --viewer-pad: 16px;
+                --tile-radius: 20px;
+                --enlarge-radius: 20px;
+            }
+            
+            .item__image {
+                inset: 6px;
+            }
+            
+            .dialog h3 {
+                font-size: 20px;
+            }
+            
+            .dialog-button {
+                padding: 10px 20px;
+                font-size: 14px;
+            }
+        }
+
+        /* Loading indicator */
+        #loading {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            transition: opacity 0.5s, visibility 0.5s;
+        }
+
+        #loading.hidden {
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #4a6cf7;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Orientation specific styles */
+        @media (orientation: portrait) and (max-width: 768px) {
+            .stage.auto-rotated {
+                transform: rotate(-90deg);
+            }
+            
+            #rotateButton {
+                bottom: auto;
+                top: 20px;
+                right: 20px;
+            }
+        }
+
+        @media (orientation: landscape) and (max-height: 500px) {
+            #appHeader {
+                padding: 8px;
+            }
+            
+            #appLogo {
+                width: 32px;
+                height: 32px;
+            }
+            
+            #appTitle {
+                font-size: 14px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- PWA Install Banner -->
+    <div id="installBanner">
+        <p>Install Dome Album for better experience</p>
+        <div>
+            <button id="installButton">Install</button>
+            <button id="closeBanner">Not now</button>
+        </div>
+    </div>
+
+    <!-- Orientation Warning -->
+    <div id="orientationWarning">
+        <svg viewBox="0 0 24 24">
+            <path d="M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 18H7V5h10v14zm-1-8h-3V8h-2v3H8v2h3v3h2v-3h3v-2z"/>
+        </svg>
+        <h3>Rotate Your Device</h3>
+        <p>Please rotate your device to landscape mode for the best experience</p>
+    </div>
+
+    <!-- App Header -->
+    <div id="appHeader">
+        <div id="appLogo" title="Double click to install app">
+            <img src="https://images.unsplash.com/photo-1755331039789-7e5680e26e8f?q=80&w=100&auto=format&fit=crop" alt="Dome Album Logo">
+        </div>
+        <div id="appTitle">Dome Album</div>
+    </div>
+
+    <!-- Rotate Button -->
+    <div id="rotateButton" title="Rotate gallery">
+        <svg viewBox="0 0 24 24">
+            <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+        </svg>
+    </div>
+
+    <!-- Install Dialog -->
+    <div id="installDialog" class="dialog-overlay">
+        <div class="dialog">
+            <h3>Install Dome Album</h3>
+            <p>Do you want to install the app on your device? It will work offline and provide a better experience.</p>
+            <div class="dialog-buttons">
+                <button id="cancelInstall" class="dialog-button secondary">Cancel</button>
+                <button id="confirmInstall" class="dialog-button primary">Install</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Screen -->
+    <div id="loading">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Dome Gallery -->
+    <div class="sphere-root" id="sphereRoot">
+        <main class="sphere-main">
+            <div class="stage" id="stage">
+                <div class="sphere" id="sphere">
+                    <!-- Items will be inserted here by JavaScript -->
+                </div>
+            </div>
+            <div class="overlay"></div>
+            <div class="overlay overlay--blur"></div>
+            <div class="edge-fade edge-fade--top"></div>
+            <div class="edge-fade edge-fade--bottom"></div>
+            <div class="viewer" id="viewer">
+                <div class="scrim" id="scrim"></div>
+                <div class="frame" id="frame"></div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Service Worker Registration -->
+    <script>
+        // Service Worker for PWA
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('service-worker.js').then(function(registration) {
+                    console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                }, function(err) {
+                    console.log('ServiceWorker registration failed: ', err);
+                });
+            });
+        }
+
+        // Create service worker file dynamically
+        const swContent = `
+            self.addEventListener('install', event => {
+                event.waitUntil(
+                    caches.open('dome-album-v1').then(cache => {
+                        return cache.addAll([
+                            './',
+                            './index.html',
+                            'https://images.unsplash.com/photo-1755331039789-7e5680e26e8f?q=80&w=100&auto=format&fit=crop'
+                        ]);
+                    })
+                );
+            });
+
+            self.addEventListener('fetch', event => {
+                event.respondWith(
+                    caches.match(event.request).then(response => {
+                        return response || fetch(event.request);
+                    })
+                );
+            });
+        `;
+
+        // Create manifest file dynamically
+        const manifest = {
+            "name": "Dome Album",
+            "short_name": "DomeAlbum",
+            "description": "A 3D dome gallery for viewing images",
+            "start_url": "./",
+            "display": "standalone",
+            "background_color": "#060010",
+            "theme_color": "#060010",
+            "icons": [
+                {
+                    "src": "https://images.unsplash.com/photo-1755331039789-7e5680e26e8f?q=80&w=192&auto=format&fit=crop",
+                    "sizes": "192x192",
+                    "type": "image/jpeg"
+                },
+                {
+                    "src": "https://images.unsplash.com/photo-1755331039789-7e5680e26e8f?q=80&w=512&auto=format&fit=crop",
+                    "sizes": "512x512",
+                    "type": "image/jpeg"
+                }
+            ],
+            "orientation": "landscape"
+        };
+
+        // Store manifest and service worker in localStorage for demo purposes
+        localStorage.setItem('dome-album-manifest', JSON.stringify(manifest));
+        localStorage.setItem('dome-album-sw', swContent);
+    </script>
+
+    <!-- Main Application Script -->
+    <script>
+        // Constants and Configuration
+        const DEFAULT_IMAGES = [
+            {
+                src: 'https://images.unsplash.com/photo-1755331039789-7e5680e26e8f?q=80&w=774&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+                alt: 'Abstract art'
+            },
+            {
+                src: 'https://images.unsplash.com/photo-1755569309049-98410b94f66d?q=80&w=772&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+                alt: 'Modern sculpture'
+            },
+            {
+                src: 'https://images.unsplash.com/photo-1755497595318-7e5e3523854f?q=80&w=774&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+                alt: 'Digital artwork'
+            },
+            {
+                src: 'https://images.unsplash.com/photo-1755353985163-c2a0fe5ac3d8?q=80&w=774&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+                alt: 'Contemporary art'
+            },
+            {
+                src: 'https://images.unsplash.com/photo-1745965976680-d00be7dc0377?q=80&w=774&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+                alt: 'Geometric pattern'
+            },
+            {
+                src: 'https://images.unsplash.com/photo-1752588975228-21f44630bb3c?q=80&w=774&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+                alt: 'Textured surface'
+            },
+            { 
+                src: 'https://images.unsplash.com/photo-1755101579466-8fb3c8a80d4f?q=80&w=774&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D', 
+                alt: 'Social media image' 
+            }
+        ];
+
+        const DEFAULTS = {
+            maxVerticalRotationDeg: 5,
+            dragSensitivity: 20,
+            enlargeTransitionMs: 300,
+            segments: 35,
+            fit: 0.5,
+            minRadius: 400,
+            maxRadius: 800,
+            padFactor: 0.25
+        };
+
+        // Utility Functions
+        const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
+        const normalizeAngle = d => ((d % 360) + 360) % 360;
+        const wrapAngleSigned = deg => {
+            const a = (((deg + 180) % 360) + 360) % 360;
+            return a - 180;
+        };
+        const getDataNumber = (el, name, fallback) => {
+            const attr = el.dataset[name];
+            const n = attr == null ? NaN : parseFloat(attr);
+            return Number.isFinite(n) ? n : fallback;
+        };
+
+        // Dome Gallery Class
+        class DomeGallery {
+            constructor(config = {}) {
+                this.config = { ...DEFAULTS, ...config };
+                this.rotation = { x: 0, y: 0 };
+                this.startRot = { x: 0, y: 0 };
+                this.startPos = null;
+                this.dragging = false;
+                this.moved = false;
+                this.inertiaRAF = null;
+                this.opening = false;
+                this.openStartedAt = 0;
+                this.lastDragEndAt = 0;
+                this.rotationAngle = 0;
+                this.focusedElement = null;
+                this.originalTilePosition = null;
+                this.lockedRadius = null;
+                this.scrollLocked = false;
+                this.autoRotated = false;
+                this.currentOrientation = this.getOrientation();
+                
+                this.initElements();
+                this.createItems();
+                this.bindEvents();
+                this.initResizeObserver();
+                this.updateRadius();
+                this.applyTransform();
+                
+                // Check initial orientation
+                this.checkOrientation();
+                
+                // Hide loading screen
+                setTimeout(() => {
+                    document.getElementById('loading').classList.add('hidden');
+                }, 500);
+            }
+
+            getOrientation() {
+                const width = window.innerWidth;
+                const height = window.innerHeight;
+                const aspectRatio = width / height;
+                
+                return aspectRatio >= 1 ? 'landscape' : 'portrait';
+            }
+
+            checkOrientation() {
+                const orientation = this.getOrientation();
+                this.currentOrientation = orientation;
+                
+                if (orientation === 'portrait' && window.innerWidth <= 768) {
+                    // Auto-rotate for portrait mode on mobile
+                    this.autoRotateForPortrait();
+                    document.getElementById('orientationWarning').classList.add('show');
+                } else {
+                    // Show normal landscape view
+                    this.resetAutoRotation();
+                    document.getElementById('orientationWarning').classList.remove('show');
+                }
+            }
+
+            autoRotateForPortrait() {
+                if (!this.autoRotated) {
+                    this.autoRotated = true;
+                    this.stage.classList.add('auto-rotated');
+                    
+                    // Adjust rotation for portrait mode
+                    const temp = this.rotation.x;
+                    this.rotation.x = this.rotation.y;
+                    this.rotation.y = temp;
+                    this.applyTransform();
+                    
+                    // Update config for portrait mode
+                    this.config.dragSensitivity = 15; // More sensitive for portrait
+                    this.config.maxVerticalRotationDeg = 8; // Allow more vertical rotation
+                }
+            }
+
+            resetAutoRotation() {
+                if (this.autoRotated) {
+                    this.autoRotated = false;
+                    this.stage.classList.remove('auto-rotated');
+                    
+                    // Reset rotation
+                    const temp = this.rotation.x;
+                    this.rotation.x = this.rotation.y;
+                    this.rotation.y = temp;
+                    this.applyTransform();
+                    
+                    // Reset config
+                    this.config.dragSensitivity = 20;
+                    this.config.maxVerticalRotationDeg = 5;
+                }
+            }
+
+            initElements() {
+                this.root = document.getElementById('sphereRoot');
+                this.main = document.querySelector('.sphere-main');
+                this.sphere = document.getElementById('sphere');
+                this.stage = document.getElementById('stage');
+                this.frame = document.getElementById('frame');
+                this.viewer = document.getElementById('viewer');
+                this.scrim = document.getElementById('scrim');
+            }
+
+            buildItems(pool, seg) {
+                const xCols = Array.from({ length: seg }, (_, i) => -37 + i * 2);
+                const evenYs = [-4, -2, 0, 2, 4];
+                const oddYs = [-3, -1, 1, 3, 5];
+
+                const coords = xCols.flatMap((x, c) => {
+                    const ys = c % 2 === 0 ? evenYs : oddYs;
+                    return ys.map(y => ({ x, y, sizeX: 2, sizeY: 2 }));
+                });
+
+                const totalSlots = coords.length;
+                if (pool.length === 0) {
+                    return coords.map(c => ({ ...c, src: '', alt: '' }));
+                }
+
+                const normalizedImages = pool.map(image => {
+                    if (typeof image === 'string') {
+                        return { src: image, alt: '' };
+                    }
+                    return { src: image.src || '', alt: image.alt || '' };
+                });
+
+                const usedImages = Array.from({ length: totalSlots }, (_, i) => 
+                    normalizedImages[i % normalizedImages.length]
+                );
+
+                for (let i = 1; i < usedImages.length; i++) {
+                    if (usedImages[i].src === usedImages[i - 1].src) {
+                        for (let j = i + 1; j < usedImages.length; j++) {
+                            if (usedImages[j].src !== usedImages[i].src) {
+                                const tmp = usedImages[i];
+                                usedImages[i] = usedImages[j];
+                                usedImages[j] = tmp;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                return coords.map((c, i) => ({
+                    ...c,
+                    src: usedImages[i].src,
+                    alt: usedImages[i].alt
+                }));
+            }
+
+            createItems() {
+                const items = this.buildItems(DEFAULT_IMAGES, this.config.segments);
+                this.sphere.innerHTML = '';
+                
+                items.forEach((it, i) => {
+                    const itemDiv = document.createElement('div');
+                    itemDiv.className = 'item';
+                    itemDiv.dataset.src = it.src;
+                    itemDiv.dataset.offsetX = it.x;
+                    itemDiv.dataset.offsetY = it.y;
+                    itemDiv.dataset.sizeX = it.sizeX;
+                    itemDiv.dataset.sizeY = it.sizeY;
+                    itemDiv.style.setProperty('--offset-x', it.x);
+                    itemDiv.style.setProperty('--offset-y', it.y);
+                    itemDiv.style.setProperty('--item-size-x', it.sizeX);
+                    itemDiv.style.setProperty('--item-size-y', it.sizeY);
+                    
+                    const imageDiv = document.createElement('div');
+                    imageDiv.className = 'item__image';
+                    imageDiv.setAttribute('role', 'button');
+                    imageDiv.setAttribute('tabindex', '0');
+                    imageDiv.setAttribute('aria-label', it.alt || 'Open image');
+                    
+                    const img = document.createElement('img');
+                    img.src = it.src;
+                    img.draggable = false;
+                    img.alt = it.alt;
+                    
+                    imageDiv.appendChild(img);
+                    itemDiv.appendChild(imageDiv);
+                    this.sphere.appendChild(itemDiv);
+                    
+                    // Add event listeners
+                    imageDiv.addEventListener('click', (e) => this.onTileClick(e));
+                    imageDiv.addEventListener('pointerup', (e) => this.onTilePointerUp(e));
+                });
+            }
+
+            bindEvents() {
+                // Mouse events
+                this.main.addEventListener('mousedown', (e) => this.onDragStart(e));
+                document.addEventListener('mousemove', (e) => this.onDrag(e));
+                document.addEventListener('mouseup', (e) => this.onDragEnd(e));
+                
+                // Touch events
+                this.main.addEventListener('touchstart', (e) => this.onDragStart(e.touches[0]), { passive: true });
+                document.addEventListener('touchmove', (e) => this.onDrag(e.touches[0]), { passive: true });
+                document.addEventListener('touchend', (e) => this.onDragEnd(e.changedTouches[0]));
+                
+                // Scrim click to close enlarged image
+                this.scrim.addEventListener('click', () => this.closeEnlarged());
+                
+                // Keyboard events
+                document.addEventListener('keydown', (e) => {
+                    if (e.key === 'Escape') this.closeEnlarged();
+                });
+                
+                // Install dialog events
+                document.getElementById('appLogo').addEventListener('dblclick', () => {
+                    document.getElementById('installDialog').classList.add('show');
+                });
+                
+                document.getElementById('cancelInstall').addEventListener('click', () => {
+                    document.getElementById('installDialog').classList.remove('show');
+                });
+                
+                document.getElementById('confirmInstall').addEventListener('click', () => {
+                    this.installPWA();
+                    document.getElementById('installDialog').classList.remove('show');
+                });
+                
+                // Install banner events
+                document.getElementById('installButton').addEventListener('click', () => {
+                    this.installPWA();
+                    document.getElementById('installBanner').classList.remove('show');
+                });
+                
+                document.getElementById('closeBanner').addEventListener('click', () => {
+                    document.getElementById('installBanner').classList.remove('show');
+                });
+                
+                // Rotate button
+                document.getElementById('rotateButton').addEventListener('click', () => {
+                    this.rotateGallery();
+                });
+                
+                // Orientation change
+                window.addEventListener('resize', () => this.handleResize());
+                window.addEventListener('orientationchange', () => {
+                    setTimeout(() => this.handleResize(), 100);
+                });
+                
+                // Device motion for auto-rotation
+                if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                    this.setupDeviceMotion();
+                } else if (window.DeviceMotionEvent) {
+                    window.addEventListener('devicemotion', (e) => this.handleDeviceMotion(e));
+                }
+                
+                // Prevent context menu
+                this.main.addEventListener('contextmenu', (e) => e.preventDefault());
+            }
+
+            handleResize() {
+                const newOrientation = this.getOrientation();
+                
+                if (newOrientation !== this.currentOrientation) {
+                    this.currentOrientation = newOrientation;
+                    this.checkOrientation();
+                }
+                
+                this.updateRadius();
+                this.applyTransform();
+            }
+
+            setupDeviceMotion() {
+                // Request permission for iOS 13+
+                document.addEventListener('click', () => {
+                    if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                        DeviceMotionEvent.requestPermission()
+                            .then(permissionState => {
+                                if (permissionState === 'granted') {
+                                    window.addEventListener('devicemotion', (e) => this.handleDeviceMotion(e));
+                                }
+                            })
+                            .catch(console.error);
+                    }
+                });
+            }
+
+            handleDeviceMotion(event) {
+                if (!event.rotationRate || this.focusedElement || this.dragging) return;
+                
+                const { alpha, beta, gamma } = event.rotationRate;
+                if (!alpha && !beta && !gamma) return;
+                
+                // Use gyroscope data for subtle auto-rotation
+                const sensitivity = 0.05;
+                const maxRotation = 2;
+                
+                if (beta) {
+                    const deltaY = clamp(beta * sensitivity, -maxRotation, maxRotation);
+                    this.rotation.y = wrapAngleSigned(this.rotation.y + deltaY);
+                }
+                
+                if (gamma) {
+                    const deltaX = clamp(gamma * sensitivity, -maxRotation, maxRotation);
+                    this.rotation.x = clamp(
+                        this.rotation.x + deltaX,
+                        -this.config.maxVerticalRotationDeg,
+                        this.config.maxVerticalRotationDeg
+                    );
+                }
+                
+                this.applyTransform();
+            }
+
+            onDragStart(e) {
+                if (this.focusedElement) return;
+                this.stopInertia();
+                this.dragging = true;
+                this.moved = false;
+                this.startRot = { ...this.rotation };
+                this.startPos = { x: e.clientX, y: e.clientY };
+            }
+
+            onDrag(e) {
+                if (this.focusedElement || !this.dragging || !this.startPos) return;
+                
+                const dxTotal = e.clientX - this.startPos.x;
+                const dyTotal = e.clientY - this.startPos.y;
+                
+                if (!this.moved) {
+                    const dist2 = dxTotal * dxTotal + dyTotal * dyTotal;
+                    if (dist2 > 16) this.moved = true;
+                }
+                
+                // Adjust sensitivity based on orientation
+                const sensitivity = this.autoRotated ? this.config.dragSensitivity * 0.8 : this.config.dragSensitivity;
+                
+                const nextX = clamp(
+                    this.startRot.x - dyTotal / sensitivity,
+                    -this.config.maxVerticalRotationDeg,
+                    this.config.maxVerticalRotationDeg
+                );
+                const nextY = wrapAngleSigned(this.startRot.y + dxTotal / sensitivity);
+                
+                if (this.rotation.x !== nextX || this.rotation.y !== nextY) {
+                    this.rotation = { x: nextX, y: nextY };
+                    this.applyTransform();
+                }
+            }
+
+            onDragEnd(e) {
+                if (!this.dragging) return;
+                this.dragging = false;
+                
+                if (this.moved) {
+                    this.lastDragEndAt = performance.now();
+                    // Simple inertia simulation
+                    if (this.startPos && e) {
+                        const dx = e.clientX - this.startPos.x;
+                        const dy = e.clientY - this.startPos.y;
+                        const vx = clamp((dx / this.config.dragSensitivity) * 0.02, -1.2, 1.2);
+                        const vy = clamp((dy / this.config.dragSensitivity) * 0.02, -1.2, 1.2);
+                        
+                        if (Math.abs(vx) > 0.005 || Math.abs(vy) > 0.005) {
+                            this.startInertia(vx, vy);
+                        }
+                    }
+                }
+                this.moved = false;
+            }
+
+            onTileClick(e) {
+                if (this.dragging) return;
+                if (this.moved) return;
+                if (performance.now() - this.lastDragEndAt < 80) return;
+                if (this.opening) return;
+                this.openItemFromElement(e.currentTarget);
+            }
+
+            onTilePointerUp(e) {
+                if (e.pointerType !== 'touch') return;
+                if (this.dragging) return;
+                if (this.moved) return;
+                if (performance.now() - this.lastDragEndAt < 80) return;
+                if (this.opening) return;
+                this.openItemFromElement(e.currentTarget);
+            }
+
+            applyTransform() {
+                if (this.sphere) {
+                    // Adjust rotation based on auto-rotation
+                    let rotationX = this.rotation.x;
+                    let rotationY = this.rotation.y;
+                    
+                    if (this.autoRotated) {
+                        // Swap axes for portrait mode
+                        rotationX = this.rotation.y;
+                        rotationY = this.rotation.x;
+                    }
+                    
+                    this.sphere.style.transform = `translateZ(calc(var(--radius) * -1)) rotateX(${rotationX}deg) rotateY(${rotationY}deg)`;
+                }
+            }
+
+            stopInertia() {
+                if (this.inertiaRAF) {
+                    cancelAnimationFrame(this.inertiaRAF);
+                    this.inertiaRAF = null;
+                }
+            }
+
+            startInertia(vx, vy) {
+                const MAX_V = 1.4;
+                let vX = clamp(vx, -MAX_V, MAX_V) * 80;
+                let vY = clamp(vy, -MAX_V, MAX_V) * 80;
+                let frames = 0;
+                const d = clamp(2, 0, 1);
+                const frictionMul = 0.94 + 0.055 * d;
+                const stopThreshold = 0.015 - 0.01 * d;
+                const maxFrames = Math.round(90 + 270 * d);
+                
+                const step = () => {
+                    vX *= frictionMul;
+                    vY *= frictionMul;
+                    
+                    if (Math.abs(vX) < stopThreshold && Math.abs(vY) < stopThreshold) {
+                        this.inertiaRAF = null;
+                        return;
+                    }
+                    
+                    if (++frames > maxFrames) {
+                        this.inertiaRAF = null;
+                        return;
+                    }
+                    
+                    const nextX = clamp(this.rotation.x - vY / 200, -this.config.maxVerticalRotationDeg, this.config.maxVerticalRotationDeg);
+                    const nextY = wrapAngleSigned(this.rotation.y + vX / 200);
+                    this.rotation = { x: nextX, y: nextY };
+                    this.applyTransform();
+                    this.inertiaRAF = requestAnimationFrame(step);
+                };
+                
+                this.stopInertia();
+                this.inertiaRAF = requestAnimationFrame(step);
+            }
+
+            computeItemBaseRotation(offsetX, offsetY, sizeX, sizeY) {
+                const unit = 360 / this.config.segments / 2;
+                const rotateY = unit * (offsetX + (sizeX - 1) / 2);
+                const rotateX = unit * (offsetY - (sizeY - 1) / 2);
+                return { rotateX, rotateY };
+            }
+
+            openItemFromElement(el) {
+                if (this.opening) return;
+                this.opening = true;
+                this.openStartedAt = performance.now();
+                this.lockScroll();
+                
+                const parent = el.parentElement;
+                this.focusedElement = el;
+                el.setAttribute('data-focused', 'true');
+                
+                const offsetX = getDataNumber(parent, 'offsetX', 0);
+                const offsetY = getDataNumber(parent, 'offsetY', 0);
+                const sizeX = getDataNumber(parent, 'sizeX', 2);
+                const sizeY = getDataNumber(parent, 'sizeY', 2);
+                
+                const parentRot = this.computeItemBaseRotation(offsetX, offsetY, sizeX, sizeY);
+                const parentY = normalizeAngle(parentRot.rotateY);
+                const globalY = normalizeAngle(this.rotation.y);
+                let rotY = -(parentY + globalY) % 360;
+                if (rotY < -180) rotY += 360;
+                const rotX = -parentRot.rotateX - this.rotation.x;
+                
+                parent.style.setProperty('--rot-y-delta', `${rotY}deg`);
+                parent.style.setProperty('--rot-x-delta', `${rotX}deg`);
+                
+                // Create reference div
+                const refDiv = document.createElement('div');
+                refDiv.className = 'item__image item__image--reference';
+                refDiv.style.opacity = '0';
+                refDiv.style.transform = `rotateX(${-parentRot.rotateX}deg) rotateY(${-parentRot.rotateY}deg)`;
+                parent.appendChild(refDiv);
+                
+                // Get positions
+                const tileR = refDiv.getBoundingClientRect();
+                const mainR = this.main.getBoundingClientRect();
+                const frameR = this.frame.getBoundingClientRect();
+                
+                if (!mainR || !frameR || tileR.width <= 0 || tileR.height <= 0) {
+                    this.opening = false;
+                    this.focusedElement = null;
+                    parent.removeChild(refDiv);
+                    this.unlockScroll();
+                    return;
+                }
+                
+                this.originalTilePosition = { 
+                    left: tileR.left, 
+                    top: tileR.top, 
+                    width: tileR.width, 
+                    height: tileR.height 
+                };
+                
+                el.style.visibility = 'hidden';
+                el.style.zIndex = '0';
+                
+                // Create enlarged overlay
+                const overlay = document.createElement('div');
+                overlay.className = 'enlarge';
+                overlay.style.position = 'absolute';
+                overlay.style.left = (frameR.left - mainR.left) + 'px';
+                overlay.style.top = (frameR.top - mainR.top) + 'px';
+                overlay.style.width = frameR.width + 'px';
+                overlay.style.height = frameR.height + 'px';
+                overlay.style.opacity = '0';
+                overlay.style.zIndex = '30';
+                
+                const rawSrc = parent.dataset.src || el.querySelector('img')?.src || '';
+                const img = document.createElement('img');
+                img.src = rawSrc;
+                overlay.appendChild(img);
+                this.viewer.appendChild(overlay);
+                
+                // Calculate initial transform
+                const tx0 = tileR.left - frameR.left;
+                const ty0 = tileR.top - frameR.top;
+                const sx0 = tileR.width / frameR.width;
+                const sy0 = tileR.height / frameR.height;
+                
+                const validSx0 = isFinite(sx0) && sx0 > 0 ? sx0 : 1;
+                const validSy0 = isFinite(sy0) && sy0 > 0 ? sy0 : 1;
+                
+                overlay.style.transform = `translate(${tx0}px, ${ty0}px) scale(${validSx0}, ${validSy0})`;
+                
+                // Animate to full size
+                setTimeout(() => {
+                    if (!overlay.parentElement) return;
+                    overlay.style.opacity = '1';
+                    overlay.style.transform = 'translate(0px, 0px) scale(1, 1)';
+                    this.root.setAttribute('data-enlarging', 'true');
+                }, 16);
+            }
+
+            closeEnlarged() {
+                if (performance.now() - this.openStartedAt < 250) return;
+                const el = this.focusedElement;
+                if (!el) return;
+                
+                const parent = el.parentElement;
+                const overlay = this.viewer.querySelector('.enlarge');
+                if (!overlay) return;
+                
+                const originalPos = this.originalTilePosition;
+                if (!originalPos) {
+                    overlay.remove();
+                    parent.style.setProperty('--rot-y-delta', '0deg');
+                    parent.style.setProperty('--rot-x-delta', '0deg');
+                    el.style.visibility = '';
+                    el.style.zIndex = '0';
+                    this.focusedElement = null;
+                    this.root.removeAttribute('data-enlarging');
+                    this.opening = false;
+                    this.unlockScroll();
+                    return;
+                }
+                
+                // Create closing animation
+                const animatingOverlay = document.createElement('div');
+                animatingOverlay.className = 'enlarge-closing';
+                animatingOverlay.style.cssText = `
+                    position: absolute;
+                    left: ${overlay.offsetLeft}px;
+                    top: ${overlay.offsetTop}px;
+                    width: ${overlay.offsetWidth}px;
+                    height: ${overlay.offsetHeight}px;
+                    z-index: 9999;
+                    border-radius: var(--enlarge-radius, 32px);
+                    overflow: hidden;
+                    transition: all ${this.config.enlargeTransitionMs}ms ease-out;
+                    pointer-events: none;
+                    margin: 0;
+                    transform: none;
+                `;
+                
+                const originalImg = overlay.querySelector('img');
+                if (originalImg) {
+                    const img = originalImg.cloneNode();
+                    img.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
+                    animatingOverlay.appendChild(img);
+                }
+                
+                overlay.remove();
+                this.root.appendChild(animatingOverlay);
+                
+                // Animate back to original position
+                requestAnimationFrame(() => {
+                    const rootRect = this.root.getBoundingClientRect();
+                    const originalPosRelativeToRoot = {
+                        left: originalPos.left - rootRect.left,
+                        top: originalPos.top - rootRect.top,
+                        width: originalPos.width,
+                        height: originalPos.height
+                    };
+                    
+                    animatingOverlay.style.left = originalPosRelativeToRoot.left + 'px';
+                    animatingOverlay.style.top = originalPosRelativeToRoot.top + 'px';
+                    animatingOverlay.style.width = originalPosRelativeToRoot.width + 'px';
+                    animatingOverlay.style.height = originalPosRelativeToRoot.height + 'px';
+                    animatingOverlay.style.opacity = '0';
+                });
+                
+                // Cleanup
+                const cleanup = () => {
+                    animatingOverlay.remove();
+                    this.originalTilePosition = null;
+                    
+                    parent.style.transition = 'none';
+                    el.style.transition = 'none';
+                    parent.style.setProperty('--rot-y-delta', '0deg');
+                    parent.style.setProperty('--rot-x-delta', '0deg');
+                    
+                    requestAnimationFrame(() => {
+                        el.style.visibility = '';
+                        el.style.opacity = '0';
+                        el.style.zIndex = '0';
+                        this.focusedElement = null;
+                        this.root.removeAttribute('data-enlarging');
+                        
+                        requestAnimationFrame(() => {
+                            parent.style.transition = '';
+                            el.style.transition = 'opacity 300ms ease-out';
+                            
+                            requestAnimationFrame(() => {
+                                el.style.opacity = '1';
+                                setTimeout(() => {
+                                    el.style.transition = '';
+                                    el.style.opacity = '';
+                                    this.opening = false;
+                                    if (!this.dragging && this.root.getAttribute('data-enlarging') !== 'true') {
+                                        this.unlockScroll();
+                                    }
+                                }, 300);
+                            });
+                        });
+                    });
+                };
+                
+                animatingOverlay.addEventListener('transitionend', cleanup, { once: true });
+            }
+
+            lockScroll() {
+                if (this.scrollLocked) return;
+                this.scrollLocked = true;
+                document.body.classList.add('dg-scroll-lock');
+            }
+
+            unlockScroll() {
+                if (!this.scrollLocked) return;
+                if (this.root.getAttribute('data-enlarging') === 'true') return;
+                this.scrollLocked = false;
+                document.body.classList.remove('dg-scroll-lock');
+            }
+
+            initResizeObserver() {
+                const ro = new ResizeObserver(entries => {
+                    this.updateRadius();
+                });
+                ro.observe(this.root);
+            }
+
+            updateRadius() {
+                const root = this.root;
+                if (!root) return;
+                
+                const w = Math.max(1, root.clientWidth);
+                const h = Math.max(1, root.clientHeight);
+                const minDim = Math.min(w, h);
+                const maxDim = Math.max(w, h);
+                const aspect = w / h;
+                
+                let basis;
+                if (aspect >= 1.3) {
+                    basis = w;
+                } else {
+                    basis = minDim;
+                }
+                
+                let radius = basis * this.config.fit;
+                const heightGuard = h * 1.35;
+                radius = Math.min(radius, heightGuard);
+                radius = clamp(radius, this.config.minRadius, this.config.maxRadius);
+                this.lockedRadius = Math.round(radius);
+                
+                const viewerPad = Math.max(8, Math.round(minDim * this.config.padFactor));
+                root.style.setProperty('--radius', `${this.lockedRadius}px`);
+                root.style.setProperty('--viewer-pad', `${viewerPad}px`);
+                this.applyTransform();
+            }
+
+            rotateGallery() {
+                this.rotationAngle = (this.rotationAngle + 90) % 360;
+                this.stage.classList.remove('rotated-0', 'rotated-90', 'rotated-180', 'rotated-270');
+                
+                setTimeout(() => {
+                    if (this.rotationAngle === 90) {
+                        this.stage.classList.add('rotated-90');
+                    } else if (this.rotationAngle === 180) {
+                        this.stage.classList.add('rotated-180');
+                    } else if (this.rotationAngle === 270) {
+                        this.stage.classList.add('rotated-270');
+                    } else {
+                        this.stage.classList.add('rotated-0');
+                    }
+                }, 10);
+            }
+
+            installPWA() {
+                // Check if PWA is already installed
+                if (window.matchMedia('(display-mode: standalone)').matches) {
+                    alert('Dome Album is already installed on your device.');
+                    return;
+                }
+                
+                // Show installation prompt if available
+                if (window.deferredPrompt) {
+                    window.deferredPrompt.prompt();
+                    window.deferredPrompt.userChoice.then((choiceResult) => {
+                        if (choiceResult.outcome === 'accepted') {
+                            console.log('User accepted the install prompt');
+                            document.getElementById('installBanner').classList.remove('show');
+                        } else {
+                            console.log('User dismissed the install prompt');
+                        }
+                        window.deferredPrompt = null;
+                    });
+                } else {
+                    // Fallback for browsers that don't support beforeinstallprompt
+                    alert('To install this app, look for the "Add to Home Screen" option in your browser\'s menu.');
+                }
+            }
+        }
+
+        // Initialize the gallery when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            window.gallery = new DomeGallery();
+            
+            // PWA installation prompt
+            let deferredPrompt;
+            window.addEventListener('beforeinstallprompt', (e) => {
+                e.preventDefault();
+                deferredPrompt = e;
+                
+                // Show install banner after a delay
+                setTimeout(() => {
+                    if (!window.matchMedia('(display-mode: standalone)').matches) {
+                        document.getElementById('installBanner').classList.add('show');
+                    }
+                }, 3000);
+                
+                window.deferredPrompt = deferredPrompt;
+            });
+            
+            // Detect if app is running in standalone mode
+            if (window.matchMedia('(display-mode: standalone)').matches) {
+                console.log('Running in standalone mode');
+            }
+        });
+
+        // Handle service worker updates
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                window.location.reload();
+            });
+        }
+    </script>
+</body>
+</html>
